@@ -68,7 +68,8 @@ program use_raphrrr_sfc
      close(15)
      write(*,setup)
 
-     mpasfile_read=trim(mpasfile)//"_read"
+!     mpasfile_read=trim(mpasfile)//"_read"
+     mpasfile_read=trim(mpasfile)
 ! read in mpas latlon
      call mpas%open(trim(mpasfile_read),"r",200)
      call mpas%get_dim("nCells",ncells)
