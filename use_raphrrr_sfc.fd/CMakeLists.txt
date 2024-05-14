@@ -6,6 +6,7 @@ list(APPEND src_use_raphrrr_sfc
 add_executable(use_raphrrr_sfc.exe ${src_use_raphrrr_sfc})
 target_link_libraries(use_raphrrr_sfc.exe PRIVATE ${PROJECT_NAME}::map_util
                                           PRIVATE ${PROJECT_NAME}::ncio
+                                          PRIVATE ${PROJECT_NAME}::kinds
                                           PRIVATE NetCDF::NetCDF_Fortran
                                           PRIVATE MPI::MPI_Fortran)
 

@@ -1,5 +1,5 @@
 program use_raphrrr_sfc
-!
+        !
   use kinds, only: i_kind,r_kind,r_single,i_byte
   use module_ncio, only : ncio
   use module_map_utils, only : map_util
@@ -8,7 +8,7 @@ program use_raphrrr_sfc
 !
   implicit none
 !
-  type(ncio)     :: raphrrr,rrfs
+  type(ncio)     :: raphrrr,mpas
   type(map_util) :: map
   type(use_surface) :: sfc
 !
@@ -17,32 +17,33 @@ program use_raphrrr_sfc
   character*80 :: rapfile
   character*80 :: hrrrfile
   character*80 :: hrrr_akfile
-  character*80 :: rrfsfile
-  character*80 :: rrfsfile_read
+  character*80 :: mpasfile
+  character*80 :: mpasfile_read
   logical :: do_lake_surgery
-  namelist/setup/ rapfile,hrrrfile,hrrr_akfile,rrfsfile,do_lake_surgery
+  namelist/setup/ rapfile,hrrrfile,hrrr_akfile,mpasfile,do_lake_surgery
 !
 ! MPI variables
   integer :: npe, mype, mypeLocal,ierror
 !
 ! define grid
-  integer :: nx_rrfs,ny_rrfs
+  integer :: ncells
   integer :: nx_rap,ny_rap
-  integer :: nx_hrrr,ny_hrrr
-  integer :: nx_hrrrak,ny_hrrrak
-  integer :: nz_rrfs,nz_raphrrr
-  integer :: nz_rrfs_lake,nz_raphrrr_lake
-  integer :: nz_rrfs_snow,nz_raphrrr_snow
+  integer :: nz_mpas,nz_raphrrr
+  integer :: nz_mpas_lake,nz_raphrrr_lake
+  integer :: nz_mpas_snow,nz_raphrrr_snow
 !
 ! define map
-  real(r_single),allocatable,target :: rlon2d_rrfs(:,:),rlat2d_rrfs(:,:)
+  real(r_single),allocatable,target :: rlon2d_mpas(:),rlat2d_mpas(:)
   real(r_single),allocatable,target :: rlon2d_raphrrr(:,:),rlat2d_raphrrr(:,:)
   integer(i_byte),allocatable :: landmask_raphrrr(:,:)
-  integer(i_byte),allocatable :: landmask_rrfs(:,:)
+  integer(i_byte),allocatable :: landmask_mpas(:)
   integer(i_byte),allocatable :: lakemask_raphrrr(:,:)
-  integer(i_byte),allocatable :: lakemask_rrfs(:,:)
+  integer(i_byte),allocatable :: lakemask_mpas(:)
+  real(r_single),allocatable,target :: tmp1d4b(:)
+  integer(i_kind),allocatable,target :: tmp1d4i(:)
   real(r_single),allocatable,target :: tmp2d4b(:,:)
 
+  real(r_single),parameter:: rad2deg=180.0/3.1415926
   integer :: i,j,k,n
   character*80 :: raphrrrfile
 !
@@ -60,65 +61,60 @@ program use_raphrrr_sfc
      rapfile='missing'
      hrrrfile='missing'
      hrrr_akfile='missing'
-     rrfsfile='missing'
+     mpasfile='missing'
      do_lake_surgery=.false.
      open(15, file='use_raphrrr_sfc.namelist')
         read(15,setup)
      close(15)
      write(*,setup)
 
-     rrfsfile_read=trim(rrfsfile)//"_read"
-! read in rrfs latlon
-     call rrfs%open('fv3_grid_spec',"r",200)
-     call rrfs%get_dim("grid_xt",nx_rrfs)
-     call rrfs%get_dim("grid_yt",ny_rrfs)
-     write(*,*) 'nx_rrfs,ny_rrfs=',nx_rrfs,ny_rrfs
+     mpasfile_read=trim(mpasfile)//"_read"
+! read in mpas latlon
+     call mpas%open(trim(mpasfile_read),"r",200)
+     call mpas%get_dim("nCells",ncells)
+     write(*,*) 'ncells=',ncells
 
-     allocate(rlon2d_rrfs(nx_rrfs,ny_rrfs))
-     allocate(rlat2d_rrfs(nx_rrfs,ny_rrfs))
-     call rrfs%get_var("grid_lont",nx_rrfs,ny_rrfs,rlon2d_rrfs)
-     call rrfs%get_var("grid_latt",nx_rrfs,ny_rrfs,rlat2d_rrfs)
-     call rrfs%close()
+     allocate(rlon2d_mpas(ncells))
+     allocate(rlat2d_mpas(ncells))
+     call mpas%get_var("lonCell",ncells,rlon2d_mpas)
+     call mpas%get_var("latCell",ncells,rlat2d_mpas)
+     rlon2d_mpas=rlon2d_mpas*rad2deg
+     rlat2d_mpas=rlat2d_mpas*rad2deg
 !
-! read in rrfs land mask
-     call rrfs%open(trim(rrfsfile),"r",200)
-     allocate(landmask_rrfs(nx_rrfs,ny_rrfs))
-     allocate(lakemask_rrfs(nx_rrfs,ny_rrfs))
-     allocate(tmp2d4b(nx_rrfs,ny_rrfs))
-     call rrfs%get_var("slmsk",nx_rrfs,ny_rrfs,tmp2d4b)
-     do j=1,ny_rrfs
-       do i=1,nx_rrfs
-          landmask_rrfs(i,j)=int(tmp2d4b(i,j))
-          if(landmask_rrfs(i,j) >=2 ) landmask_rrfs(i,j)=1
-       enddo
+! read in mpas land mask
+     allocate(landmask_mpas(ncells))
+     allocate(tmp1d4i(ncells))
+     call mpas%get_var("landmask",ncells,tmp1d4i)
+     do i=1,ncells
+        landmask_mpas(i)=tmp1d4i(i)
+        if(landmask_mpas(i) >=2 ) landmask_mpas(i)=1
      enddo
+
+     call mpas%get_dim("nSoilLevels",nz_mpas)
+
+! read in mpas lake mask
      if(do_lake_surgery) then
-       call rrfs%get_var("clm_lake_initialized",nx_rrfs,ny_rrfs,tmp2d4b)
-       do j=1,ny_rrfs
-         do i=1,nx_rrfs
-            lakemask_rrfs(i,j)=int(tmp2d4b(i,j))
+       allocate(lakemask_mpas(ncells))
+       call mpas%get_var("clm_lake_initialized",ncells,tmp1d4i)
+         do i=1,ncells
+            lakemask_mpas(i)=int(tmp1d4i(i))
          enddo
-       enddo
+        call mpas%get_dim("levlake_clm_lake",nz_mpas_lake)
+        call mpas%get_dim("levsnowsoil1_clm_lake",nz_mpas_snow)
      else
-       lakemask_rrfs(:,:)=0
+        nz_mpas_lake=-99  
+        nz_mpas_snow=-99
      endif
-     deallocate(tmp2d4b)
 
-     call rrfs%get_dim("zaxis_1",nz_rrfs)
+     deallocate(tmp1d4i)
+     call mpas%close()
+     write(*,*) "landmask=",maxval(landmask_mpas), minval(landmask_mpas)
+     write(*,*) "nz_mpas=",nz_mpas
      if(do_lake_surgery) then
-        call rrfs%get_dim("levlake_clm_lake",nz_rrfs_lake)
-        call rrfs%get_dim("levsnowsoil1_clm_lake",nz_rrfs_snow)
-     else
-        nz_rrfs_lake=-99  
-        nz_rrfs_snow=-99
+        write(*,*) "lakemask=",maxval(lakemask_mpas), minval(lakemask_mpas)
+        write(*,*) "nz_mpas_lake=",nz_mpas_lake
+        write(*,*) "nz_mpas_snow=",nz_mpas_snow
      endif
-
-     call rrfs%close()
-     write(*,*) "landmask=",maxval(landmask_rrfs), minval(landmask_rrfs)
-     write(*,*) "lakemask=",maxval(lakemask_rrfs), minval(lakemask_rrfs)
-     write(*,*) "nz_rrfs=",nz_rrfs
-     write(*,*) "nz_rrfs_lake=",nz_rrfs_lake
-     write(*,*) "nz_rrfs_snow=",nz_rrfs_snow
 !
 ! use RAP
 ! read in rap latlon
@@ -141,22 +137,25 @@ program use_raphrrr_sfc
         call raphrrr%get_dim("west_east",nx_rap)
         call raphrrr%get_dim("south_north",ny_rap)
         call raphrrr%get_dim("soil_layers_stag",nz_raphrrr)
+        write(*,*) 'nx_rap,ny_rap=',nx_rap,ny_rap,nz_raphrrr
+        if(nz_raphrrr /= nz_mpas ) then
+           write(*,*) "Error in vertical level =", nz_raphrrr,nz_mpas
+           stop 123
+        endif
+
         if(do_lake_surgery) then
            call raphrrr%get_dim("soil_levels_or_lake_levels_stag",nz_raphrrr_lake)
            call raphrrr%get_dim("snow_and_soil_levels_stag",nz_raphrrr_snow)
+           write(*,*) 'nz_raphrrr_lake,nz_raphrrr_snow=',nz_raphrrr_lake,nz_raphrrr_snow
+           if(nz_raphrrr_lake /= nz_mpas_lake .or. &
+              nz_raphrrr_snow /= nz_mpas_snow) then
+              write(*,*) "Error in vertical level lake=", nz_raphrrr_lake,nz_mpas_lake
+              write(*,*) "Error in vertical level snow=", nz_raphrrr_snow,nz_mpas_snow
+              stop 123
+           endif
         else
            nz_raphrrr_lake=-99
            nz_raphrrr_snow=-99
-        endif
-
-        write(*,*) 'nx_rap,ny_rap=',nx_rap,ny_rap,nz_raphrrr
-        write(*,*) 'nz_raphrrr_lake,nz_raphrrr_snow=',nz_raphrrr_lake,nz_raphrrr_snow
-        if(nz_raphrrr /= nz_rrfs .or. nz_raphrrr_lake /= nz_rrfs_lake .or. &
-           nz_raphrrr_snow /= nz_rrfs_snow) then
-           write(*,*) "Error in vertical level =", nz_raphrrr,nz_rrfs
-           write(*,*) "Error in vertical level lake=", nz_raphrrr_lake,nz_rrfs_lake
-           write(*,*) "Error in vertical level snow=", nz_raphrrr_snow,nz_rrfs_snow
-           stop 123
         endif
 !
         allocate(rlon2d_raphrrr(nx_rap,ny_rap))
@@ -168,7 +167,6 @@ program use_raphrrr_sfc
         deallocate(rlat2d_raphrrr)
 
         allocate(landmask_raphrrr(nx_rap,ny_rap))
-        allocate(lakemask_raphrrr(nx_rap,ny_rap))
         allocate(tmp2d4b(nx_rap,ny_rap))
         call raphrrr%get_var("LANDMASK",nx_rap,ny_rap,tmp2d4b)
         do j=1,ny_rap
@@ -176,12 +174,17 @@ program use_raphrrr_sfc
              landmask_raphrrr(i,j)=int(tmp2d4b(i,j))
           enddo
         enddo
-        call raphrrr%get_var("LAKEMASK",nx_rap,ny_rap,tmp2d4b)
-        do j=1,ny_rap
-          do i=1,nx_rap
-             lakemask_raphrrr(i,j)=int(tmp2d4b(i,j))
+
+        if(do_lake_surgery) then
+          allocate(lakemask_raphrrr(nx_rap,ny_rap))
+          call raphrrr%get_var("LAKEMASK",nx_rap,ny_rap,tmp2d4b)
+          do j=1,ny_rap
+            do i=1,nx_rap
+               lakemask_raphrrr(i,j)=int(tmp2d4b(i,j))
+            enddo
           enddo
-        enddo
+        endif
+
         call raphrrr%get_var("SNOW",nx_rap,ny_rap,tmp2d4b)
         do j=1,ny_rap
           do i=1,nx_rap
@@ -192,51 +195,26 @@ program use_raphrrr_sfc
         call raphrrr%close()
 !
 ! initial sfc and map index
-        call sfc%init(nx_rrfs,ny_rrfs,nz_rrfs,nz_rrfs_lake,nz_rrfs_snow,nx_rap,ny_rap,4)
-        call sfc%build_mapindex(map,rlon2d_rrfs,rlat2d_rrfs,landmask_rrfs,landmask_raphrrr)
+        call sfc%init(ncells,nz_mpas,nz_mpas_lake,nz_mpas_snow,nx_rap,ny_rap,4)
+        call sfc%build_mapindex(map,rlon2d_mpas,rlat2d_mpas,landmask_mpas,landmask_raphrrr)
         if(do_lake_surgery) &
-           call sfc%build_lakeindex(map,rlon2d_rrfs,rlat2d_rrfs,lakemask_rrfs,lakemask_raphrrr)
+           call sfc%build_lakeindex(map,rlon2d_mpas,rlat2d_mpas,lakemask_mpas,lakemask_raphrrr)
         call sfc%set_varname()
-        call sfc%use_sfc(raphrrrfile,rrfsfile,rrfsfile_read)
+        call sfc%use_sfc(raphrrrfile,mpasfile,mpasfile_read)
         if(do_lake_surgery) &
-           call sfc%use_lake(raphrrrfile,rrfsfile,rrfsfile_read)
+           call sfc%use_lake(raphrrrfile,mpasfile,mpasfile_read)
 
-        if(n==2) call sfc%remove_snow(raphrrrfile,rrfsfile,rlat2d_rrfs)
+        if(n==2) call sfc%remove_snow(raphrrrfile,mpasfile,rlat2d_mpas)
         call sfc%close()
 ! release memory
         deallocate(landmask_raphrrr)
-        deallocate(lakemask_raphrrr)
+        if(do_lake_surgery) deallocate(lakemask_raphrrr)
         call map%destory_general_transform()
 
      enddo ! n
 !
-     deallocate(landmask_rrfs)
-     deallocate(lakemask_rrfs)
-!
-! use HRRR
-! read in hrrr latlon
-!     call raphrrr%open(trim(hrrrfile),"r",200)
-!     call raphrrr%get_dim("west_east",nx_hrrr)
-!     call raphrrr%get_dim("south_north",ny_hrrr)
-!!     call raphrrr%get_dim("soil_layers_stag",nz_raphrrr)
-!     write(*,*) 'nx_hrrr,ny_hrrr=',nx_hrrr,ny_hrrr,nz_raphrrr
-!     if(nz_raphrrr /= nz_rrfs) then
-!        write(*,*) "Error in vertical level =", nz_raphrrr,nz_rrfs
-!        stop 123
-!     endif
-!!     call raphrrr%close()
-
-! read in hrrr ak latlon
-!     call raphrrr%open(trim(hrrr_akfile),"r",200)
-!     call raphrrr%get_dim("west_east",nx_hrrrak)
-!     call raphrrr%get_dim("south_north",ny_hrrrak)
-!     call raphrrr%get_dim("soil_layers_stag",nz_raphrrr)
-!     write(*,*) 'nx_hrrrak,ny_hrrrak=',nx_hrrrak,ny_hrrrak,nz_raphrrr
-!     if(nz_raphrrr /= nz_rrfs) then
-!!        write(*,*) "Error in vertical level =", nz_raphrrr,nz_rrfs
-!        stop 123
-!     endif
-!     call raphrrr%close()
+     deallocate(landmask_mpas)
+     if(do_lake_surgery)  deallocate(lakemask_mpas)
 !
      write(6,*) "=== USE_RAPHRRR_SFC REPROCCESS SUCCESS ==="
 

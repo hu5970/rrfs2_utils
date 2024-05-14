@@ -96,7 +96,7 @@ module kinds
 
 ! Default values
 ! **** CHANGE THE FOLLOWING TO CHANGE THE DEFAULT REAL TYPE KIND ***
-  integer, parameter, private :: default_real = 1  ! 1=single, 
+  integer, parameter, private :: default_real = 2 
   integer, parameter, public  :: r_kind = real_kinds( default_real )
   integer, parameter, public  :: dp = real_kinds( default_real )
   integer, parameter, public  :: sp = r_single

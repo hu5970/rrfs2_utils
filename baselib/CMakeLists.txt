@@ -19,7 +19,7 @@ list(APPEND BASE_LIB_Targets ncio)
 
 add_library (map_util STATIC module_map_utils.f90)
 add_library(${PROJECT_NAME}::map_util ALIAS map_util)
-#target_link_libraries(map_util PUBLIC gsi::gsi)
+target_link_libraries(map_util PRIVATE ${PROJECT_NAME}::kinds)
 set_target_properties(map_util PROPERTIES Fortran_MODULE_DIRECTORY "${module_dir}")
 target_include_directories(map_util PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
                                            $<INSTALL_INTERFACE:include>)
