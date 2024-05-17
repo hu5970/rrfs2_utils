@@ -65,15 +65,15 @@ contains
 ! 2D fields
 ! 4. TSK to tsfc, and tsfcl,tsea,tref,tisfc
 ! 5, VEGFRA to vegfra
-! 6. SNOW to snow
-! 7. SNOWH to snowh
-! 8. SNOWC to snowc
+! 8. SNOW to snow
+! 9. SNOWH to snowh
+! 10. SNOWC to snowc
 !
     implicit none
 
     class(use_surface) :: this
 !
-    this%nvar=8
+    this%nvar=10
     this%nvar3d=3
 !
     if(allocated(this%var_mpas)) deallocate(this%var_mpas)
@@ -83,38 +83,40 @@ contains
 !
 ! Soil moisture: 3D float
     this%var_rap(1)="SMOIS"
-    this%var_mpas(1)="smois"  !  double  smc?
+    this%var_mpas(1)="smois"
 
 ! Liquid soil water: 3D float
     this%var_rap(2)="SH2O"
-    this%var_mpas(2)="sh2o"    ! double slc?
+    this%var_mpas(2)="sh2o"
 
 ! Soil temperature: 3D float
     this%var_rap(3)="TSLB"
-    this%var_mpas(3)="tslb"   ! double stc?
+    this%var_mpas(3)="tslb"
 
 ! SURFACE SKIN TEMPERATURE: 2D float
     this%var_rap(4)="TSK"
-    this%var_mpas(4)="skintemp"   ! double tsfcl?
-! tsfcl, tsea, tref, tisfc
-
+    this%var_mpas(4)="skintemp" 
 
 ! VEGETATION FRACTION: RAP/HRRR has real-time VIIRS GVF, MPAS - climatology
     this%var_rap(5)="VEGFRA"
-    this%var_mpas(5)="vegfra"   ! double tsfcl?
+    this%var_mpas(5)="vegfra"
 
-! SNOW WATER EQUIVALENT [mm]: 2D float
-    this%var_rap(6)="SNOW"
-    this%var_mpas(6)="snow"  ! double 
+    this%var_rap(6)="SHDMAX"
+    this%var_mpas(6)="shdmax"
 
-! PHYSICAL SNOW DEPTH [m]: 2D float
-    this%var_rap(7)="SNOWH"
-    this%var_mpas(7)="snowh"   !double
+    this%var_rap(7)="SHDMIN"
+    this%var_mpas(7)="shdmin"
 
-! FLAG INDICATING SNOW COVERAGE (1 FOR SNOW COVER): 2D float
-! sncovr over land and sncovr_ice over sea ice
-    this%var_rap(8)="SNOWC"
-    this%var_mpas(8)="snowc"   ! double
+! SNOW WATER EQUIVALENT [mm]
+    this%var_rap(8)="SNOW"
+    this%var_mpas(8)="snow"
+
+! PHYSICAL SNOW DEPTH [m]:
+    this%var_rap(9)="SNOWH"
+    this%var_mpas(9)="snowh"
+
+    this%var_rap(10)="SNOWC"
+    this%var_mpas(10)="snowc"
 !
 !    Add lake model fields
 ! We have to read the variable clm_lake_initialized. If it is =1, then it is a lake in the RRFS. 
@@ -444,6 +446,20 @@ contains
               enddo
           endif
           deallocate(tmp2d4b)
+
+          if(trim(thisvar_mpas) == "snowc") then
+             do i=1,ncells_mpas
+                tmp2d4br(i)=min(max(tmp2d4br(i),0.0),1.0)
+             enddo
+          elseif(trim(thisvar_mpas) == "snow") then
+             do i=1,ncells_mpas
+                tmp2d4br(i)=min(tmp2d4br(i),3000.0)
+             enddo
+          elseif(trim(thisvar_mpas) == "showh") then
+             do i=1,ncells_mpas
+                tmp2d4br(i)=min(tmp2d4br(i),7.5)
+             enddo
+          endif
 
           call mpas%replace_var(trim(thisvar_mpas),ncells_mpas,tmp2d4br)
           deallocate(tmp2d4br)
